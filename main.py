@@ -9,6 +9,14 @@ import re
 from datetime import datetime
 import os
 import random
+from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
+import google.generativeai as genai
+
+load_dotenv()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # --- Global State & Setup ---
 app = Flask(__name__)
@@ -276,6 +284,72 @@ def recommended():
             })
         return jsonify(result)
     return jsonify([])
+
+@app.route('/api/ai-chat', methods=['POST'])
+def ai_chat():
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+        return jsonify({"status": "error", "message": "Gemini API Key is not configured in the backend"}), 500
+        
+    data = request.json
+    history = data.get('history', [])
+    
+    if not history:
+        return jsonify({"status": "error", "message": "No chat history provided"}), 400
+        
+    db = get_db()
+    products_context = ""
+    if db is not None:
+        products = list(db.products.find({}, {'_id': 0, 'product_name': 1, 'product_price': 1, 'location': 1}))
+        products_context = "Current Products available:\n"
+        for p in products:
+            products_context += f"- {p.get('product_name')} : ₹{p.get('product_price')} (Location: {p.get('location', 'N/A')})\n"
+            
+    # Also fetch the user's cart if logged in to provide more context
+    cart_context = "User's Cart: Empty"
+    if 'username' in session and db is not None:
+        cart = db.carts.find_one({"username": session['username']})
+        if cart and cart.get('products'):
+            cart_context = "User's Current Cart:\n"
+            for item in cart['products']:
+                cart_context += f"- {item['name']} (x{item['quantity']}) : ₹{item['price']}\n"
+            cart_context += f"Total: ₹{cart.get('total_price')}"
+        
+    system_prompt = f"""You are SnapShop's Advanced AI Shopping Assistant. You are highly persuasive, helpful, and friendly.
+Format your responses beautifully using Markdown (bold text for emphasis, bullet points for lists, etc.).
+
+Role & Capabilities:
+- Assist customers with finding products, checking prices, and navigating the store.
+- **Offers & Discounts**: Actively promote our current offers! Tell them about "10% off on all biscuits", "Buy 2 get 1 free on beverages", and "Free home delivery on orders over ₹500".
+- **Reviews**: Guide customers to the product section. If they ask about a product, simulate reviews (e.g., "This product is highly rated at 4.5/5 by our customers!"). Encourage them to leave their own review!
+- Keep responses concise but highly engaging. Answer ONLY questions related to shopping, products, and SnapShop.
+
+Here is the list of products in the store:
+{products_context}
+
+{cart_context}
+"""
+
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
+        
+        formatted_history = []
+        for msg in history[:-1]: # All messages except the last one
+            # Gemini API requires the history to start with a 'user' message. 
+            # We skip the initial AI greeting to prevent a 400 error.
+            if msg['sender'] == 'ai' and len(formatted_history) == 0:
+                continue
+            role = "user" if msg['sender'] == 'user' else "model"
+            formatted_history.append({"role": role, "parts": [msg['text']]})
+            
+        chat = model.start_chat(history=formatted_history)
+        
+        last_message = history[-1]['text']
+        response = chat.send_message(last_message)
+        
+        return jsonify({"status": "success", "response": response.text})
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return jsonify({"status": "error", "message": "Failed to generate AI response"}), 500
 
 # --- Vercel requires app to be exported as 'app' or 'application' ---
 

@@ -182,7 +182,7 @@ const AdminDashboard = () => {
                                 <div key={p.id} className="card" style={{ padding: '20px', background: 'white', borderRadius: '16px', boxShadow: '0 4px 15px rgba(0,0,0,0.08)' }}>
                                     <div style={{ width: '100%', height: '150px', background: '#f8f9fa', borderRadius: '12px', marginBottom: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <img
-                                            src={p.image.startsWith('http') ? p.image : `http://localhost:5000${p.image}`}
+                                            src={p.image.startsWith('http') ? p.image : `http://localhost:5003${p.image}`}
                                             alt={p.name}
                                             style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                                             onError={(e) => { e.target.src = 'https://placehold.co/150x150?text=No+Image'; }}

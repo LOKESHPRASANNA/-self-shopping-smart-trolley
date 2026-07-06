@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import Bill from './pages/Bill';
 import ProtectedRoute from './components/ProtectedRoute';
+import AIChatModal from './components/AIChatModal';
 
 function App() {
   return (
@@ -89,6 +90,7 @@ function App() {
         {/* Simple 404 */}
         <Route path="*" element={<div style={{ color: 'white', textAlign: 'center', marginTop: '50px' }}><h1>404 - Page Not Found</h1></div>} />
       </Routes>
+      <AIChatModal />
     </Router>
   );
 }

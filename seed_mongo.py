@@ -1,8 +1,12 @@
+import os
 from pymongo import MongoClient
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Connect to MongoDB
-MONGO_URI = 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
 DB_NAME = 'barcodedb'
 
 client = MongoClient(MONGO_URI)

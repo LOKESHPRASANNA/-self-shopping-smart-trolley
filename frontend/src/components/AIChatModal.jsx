@@ -36,7 +36,7 @@ const AIChatModal = () => {
 
         try {
             // Adjust the URL if the backend is hosted elsewhere
-            const response = await axios.post('http://localhost:5003/api/ai-chat', { history: updatedMessages }, { withCredentials: true });
+            const response = await axios.post('/api/ai-chat', { history: updatedMessages }, { withCredentials: true });
             
             if (response.data.status === 'success') {
                 setMessages((prev) => [...prev, { sender: 'ai', text: response.data.response }]);

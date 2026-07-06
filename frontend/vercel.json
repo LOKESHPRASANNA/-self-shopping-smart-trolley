@@ -1,8 +1,12 @@
 {
-    "rewrites": [
-        {
-            "source": "/(.*)",
-            "destination": "/"
-        }
-    ]
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://self-shopping-smart-trolley.vercel.app/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "https://self-shopping-smart-trolley.vercel.app/$1"
+    }
+  ]
 }

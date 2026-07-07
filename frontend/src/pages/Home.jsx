@@ -10,7 +10,7 @@ const Home = () => {
 
     const handleLogout = async () => {
         try {
-            await axios.post('/logout');
+            await axios.post('/api/logout');
             localStorage.removeItem('loggedin');
             localStorage.removeItem('username');
             navigate('/login');

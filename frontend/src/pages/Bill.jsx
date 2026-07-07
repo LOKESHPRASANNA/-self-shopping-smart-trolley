@@ -11,7 +11,7 @@ const Bill = () => {
         const fetchBillData = async () => {
             try {
                 // Fetch the current scanned items
-                const res = await axios.get('/get-scanned-items');
+                const res = await axios.get('/api/get-scanned-items');
                 setProducts(res.data.products || []);
                 setTotalPrice(res.data.total_prize || 0);
             } catch (err) {

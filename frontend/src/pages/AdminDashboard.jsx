@@ -20,7 +20,7 @@ const AdminDashboard = () => {
             try {
                 // If backend supports /api/stock, we use it. But car.html had hardcoded data.
                 // We'll try to fetch from /search (shows all products)
-                const res = await axios.get('/search?query=');
+                const res = await axios.get('/api/search?query=');
                 setProducts(res.data);
                 setFilteredProducts(res.data);
                 setStats(prev => ({ ...prev, products: res.data.length }));

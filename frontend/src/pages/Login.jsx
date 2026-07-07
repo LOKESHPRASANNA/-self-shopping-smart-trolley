@@ -82,7 +82,7 @@ const Login = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const response = await axios.post('/login', { username, password });
+            const response = await axios.post('/api/login', { username, password });
 
             if (response.data.status === 'success') {
                 localStorage.setItem('loggedin', 'true');

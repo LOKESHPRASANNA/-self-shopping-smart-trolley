@@ -15,7 +15,7 @@ const Scanner = () => {
 
     const fetchCart = async () => {
         try {
-            const res = await axios.get('/get-scanned-items');
+            const res = await axios.get('/api/get-scanned-items');
             setScannedItems(res.data.products || []);
             setTotalPrice(res.data.total_prize || 0);
         } catch (err) {
@@ -25,7 +25,7 @@ const Scanner = () => {
 
     const fetchRecommendations = async () => {
         try {
-            const res = await axios.get('/recommended');
+            const res = await axios.get('/api/recommended');
             setRecommendations(res.data);
         } catch (err) {
             console.error(err);
@@ -51,7 +51,7 @@ const Scanner = () => {
         console.log(`Scan result: ${decodedText}`);
 
         try {
-            const res = await axios.post('/scan-item', { barcode: decodedText });
+            const res = await axios.post('/api/scan-item', { barcode: decodedText });
 
             if (res.data.status === 'success') {
                 const beep = new Audio('/static/sounds/success.mp3');
@@ -144,7 +144,7 @@ const Scanner = () => {
 
     const handleRemoveItem = async (productName) => {
         try {
-            await axios.post('/remove-item', { product_name: productName });
+            await axios.post('/api/remove-item', { product_name: productName });
             fetchCart();
         } catch (err) {
             console.error(err);

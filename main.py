@@ -78,7 +78,7 @@ def update_cart_in_db(products, total_price):
 
 # --- Routes ---
 
-@app.route('/scan-item', methods=['POST'])
+@app.route('/api/scan-item', methods=['POST'])
 def scan_item():
     """API endpoint to handle barcode scan from frontend."""
     if 'username' not in session:
@@ -130,13 +130,13 @@ def scan_item():
         print(f"CRITICAL ERROR in scan_item: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/get-scanned-items', methods=['GET'])
+@app.route('/api/get-scanned-items', methods=['GET'])
 def get_scanned_items():
     """Returns the user's cart."""
     cart = get_cart_for_user()
     return jsonify({"products": cart.get('products', []), "total_prize": cart.get('total_price', 0.0)})
 
-@app.route('/remove-item', methods=['POST'])
+@app.route('/api/remove-item', methods=['POST'])
 def remove_item():
     if 'username' not in session: return jsonify({"status": "error"}), 401
     
@@ -160,7 +160,7 @@ def remove_item():
         print(f"Remove error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/start', methods=['POST'])
+@app.route('/api/start', methods=['POST'])
 def start_scanning():
     # Only useful if we want to CLEAR the cart
     if 'username' in session:
@@ -173,7 +173,7 @@ def home():
         return redirect(url_for('home_page'))
     return redirect(url_for('login'))
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/api/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         # Handles raw JSON from axios (react) OR form data (html)
@@ -204,12 +204,12 @@ def home_page():
         return render_template('home.html', username=session['username'])
     return redirect(url_for('login'))
 
-@app.route('/logout', methods=['POST'])
+@app.route('/api/logout', methods=['POST'])
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/api/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         if request.is_json:
@@ -246,7 +246,7 @@ def get_stock():
     stock_data = list(db.products.find({}, {'_id': 0}))
     return jsonify(stock_data)
 
-@app.route('/search', methods=['GET'])
+@app.route('/api/search', methods=['GET'])
 def search():
     query = request.args.get('query', '')
     db = get_db()
@@ -269,7 +269,7 @@ def search():
                 seen_names.add(name)
     return jsonify(results)
 
-@app.route('/recommended', methods=['GET'])
+@app.route('/api/recommended', methods=['GET'])
 def recommended():
     db = get_db()
     if db is not None:

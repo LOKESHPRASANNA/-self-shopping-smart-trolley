@@ -14,7 +14,7 @@ const ProductDetails = () => {
             // Fetch all products and find the one with the matching ID
             const fetchProduct = async () => {
                 try {
-                    const res = await axios.get('/search?query=');
+                    const res = await axios.get(`/api/search?query=${id}`);
                     // Ensure we compare strings properly (ObjectId is string)
                     const found = res.data.find(p => String(p.id) === String(id));
                     if (found) {

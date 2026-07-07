@@ -22,10 +22,10 @@ if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
 app = Flask(__name__)
 app.secret_key = 'your_super_secure_secret_key' # Use a strong key sessions
 # CORS Setup: Must specify exact origins for credentials (cookies) to work
-CORS(app, supports_credentials=True, origins=["http://localhost:5173", "https://snapshop-web.vercel.app"])
+CORS(app, supports_credentials=True, origins=["http://localhost:5173", re.compile(r"https://.*\.vercel\.app")])
 
 # MongoDB configuration
-MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb://127.0.0.1:27017/'
 DB_NAME = 'barcodedb'
 
 # --- Utility Function for Database Connection ---

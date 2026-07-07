@@ -82,31 +82,14 @@ const Login = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            // We use a form data submission to mimic the browser form behavior the flask app expects
-            const formData = new FormData();
-            formData.append('username', username);
-            formData.append('password', password);
+            const response = await axios.post('/login', { username, password });
 
-            // Using FormData acts like a standard multipart form submission
-            // We do NOT set the Content-Type header manually; axios/browser handles it with the boundary.
-            const response = await axios.post('/login', formData);
-
-            // Since the backend redirects, we check if we ended up at home
-            // Note: Axios follows redirects. If successful, response.request.responseURL should be home.
-            // Or we check the content. 
-            // The Flask app sets session['loggedin'] = True. This cookie handles auth.
-
-            // For this UI, we just simulate login success if we didn't get an error.
-            // But wait, if login fails (invalid credentials), the Flask app renders login.html (status 200).
-            // We need to know if it succeeded.
-            // Let's rely on the URL or content. 
-
-            if (response.request.responseURL.includes('/home') || response.data.includes('Welcome')) {
+            if (response.data.status === 'success') {
                 localStorage.setItem('loggedin', 'true');
                 localStorage.setItem('username', username);
                 navigate('/home');
             } else {
-                setError('Invalid credentials or Login failed');
+                setError(response.data.message || 'Invalid credentials or Login failed');
             }
         } catch (err) {
             console.error(err);

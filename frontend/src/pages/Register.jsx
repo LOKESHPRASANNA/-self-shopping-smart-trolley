@@ -19,23 +19,12 @@ const Register = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const data = new FormData();
-            data.append('username', formData.username);
-            data.append('email', formData.email);
-            data.append('password', formData.password);
+            const response = await axios.post('/register', formData);
 
-            const response = await axios.post('/register', data);
-
-            // Check for success based on response
-            // If registration is successful, backend flashes message and redirects to login
-            if (response.request.responseURL.includes('/login')) {
+            if (response.data.status === 'success') {
                 navigate('/login');
-            } else if (response.data.includes('already exists')) {
-                setError('Account with this username or email already exists.');
             } else {
-                // Fallback incase of successful registration without clear signal, 
-                // usually redirect to login is enough.
-                navigate('/login');
+                setError(response.data.message || 'Registration failed.');
             }
         } catch (err) {
             console.error(err);

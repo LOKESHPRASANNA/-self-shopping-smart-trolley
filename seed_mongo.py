@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Connect to MongoDB
-MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb://127.0.0.1:27017/'
 DB_NAME = 'barcodedb'
 
 client = MongoClient(MONGO_URI)

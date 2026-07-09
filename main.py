@@ -22,6 +22,11 @@ app.secret_key = 'your_super_secure_secret_key' # Use a strong key sessions
 # CORS Setup: Must specify exact origins for credentials (cookies) to work
 CORS(app, supports_credentials=True, origins=["http://localhost:5173", re.compile(r"https://.*\.vercel\.app")])
 
+app.config.update(
+    SESSION_COOKIE_SAMESITE="None",
+    SESSION_COOKIE_SECURE=True
+)
+
 # MongoDB configuration
 MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb://127.0.0.1:27017/'
 DB_NAME = 'barcodedb'
@@ -184,15 +189,22 @@ def login():
             password = request.form.get('password')
 
         db = get_db()
-        account = db.users.find_one({"username": username})
+        if not db:
+            return jsonify({"status": "error", "message": "Database connection failed"}), 500
+            
+        try:
+            account = db.users.find_one({"username": username})
 
-        if account and check_password_hash(account['password'], password):
-            session['loggedin'] = True
-            session['username'] = account['username']
-            return jsonify({"status": "success"}) if request.is_json else redirect(url_for('home_page'))
-        else:
-            msg = 'Invalid credentials'
-            return jsonify({"status": "error", "message": msg}) if request.is_json else render_template('login.html', error=msg)
+            if account and check_password_hash(account['password'], password):
+                session['loggedin'] = True
+                session['username'] = account['username']
+                return jsonify({"status": "success"}) if request.is_json else redirect(url_for('home_page'))
+            else:
+                msg = 'Invalid credentials'
+                return jsonify({"status": "error", "message": msg}) if request.is_json else render_template('login.html', error=msg)
+        except Exception as e:
+            print(f"Login error: {e}")
+            return jsonify({"status": "error", "message": "Database authentication or connection error"}), 500
 
     return render_template('login.html')
 
@@ -221,19 +233,26 @@ def register():
             email = request.form.get('email')
             
         db = get_db()
+        if not db:
+            return jsonify({"status": "error", "message": "Database connection failed"}), 500
+            
         hashed_password = generate_password_hash(password)
         
-        if db.users.find_one({"username": username}):
-             return jsonify({"status": "error", "message": "User exists"}) if request.is_json else "User exists"
-             
-        db.users.insert_one({
-            "username": username,
-            "password": hashed_password,
-            "email": email,
-            "created_at": datetime.now()
-        })
-        
-        return jsonify({"status": "success"}) if request.is_json else redirect(url_for('login'))
+        try:
+            if db.users.find_one({"username": username}):
+                 return jsonify({"status": "error", "message": "User exists"}) if request.is_json else "User exists"
+                 
+            db.users.insert_one({
+                "username": username,
+                "password": hashed_password,
+                "email": email,
+                "created_at": datetime.now()
+            })
+            
+            return jsonify({"status": "success"}) if request.is_json else redirect(url_for('login'))
+        except Exception as e:
+            print(f"Registration error: {e}")
+            return jsonify({"status": "error", "message": "Database authentication or connection error"}), 500
         
     return render_template('register.html')
 

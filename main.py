@@ -10,13 +10,11 @@ from datetime import datetime
 import os
 import random
 from dotenv import load_dotenv
-# pyrefly: ignore [missing-import]
-import google.generativeai as genai
+import requests
+from dotenv import load_dotenv
 
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-    genai.configure(api_key=GEMINI_API_KEY)
 
 # --- Global State & Setup ---
 app = Flask(__name__)
@@ -330,23 +328,33 @@ Here is the list of products in the store:
 """
 
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=system_prompt)
-        
-        formatted_history = []
-        for msg in history[:-1]: # All messages except the last one
-            # Gemini API requires the history to start with a 'user' message. 
-            # We skip the initial AI greeting to prevent a 400 error.
-            if msg['sender'] == 'ai' and len(formatted_history) == 0:
+        contents = []
+        for msg in history[:-1]:
+            if msg['sender'] == 'ai' and len(contents) == 0:
                 continue
             role = "user" if msg['sender'] == 'user' else "model"
-            formatted_history.append({"role": role, "parts": [msg['text']]})
+            contents.append({"role": role, "parts": [{"text": msg['text']}]})
             
-        chat = model.start_chat(history=formatted_history)
-        
         last_message = history[-1]['text']
-        response = chat.send_message(last_message)
+        contents.append({"role": "user", "parts": [{"text": last_message}]})
         
-        return jsonify({"status": "success", "response": response.text})
+        payload = {
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            },
+            "contents": contents
+        }
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        
+        api_resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        api_resp.raise_for_status()
+        
+        response_data = api_resp.json()
+        ai_text = response_data['candidates'][0]['content']['parts'][0]['text']
+        
+        return jsonify({"status": "success", "response": ai_text})
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return jsonify({"status": "error", "message": "Failed to generate AI response"}), 500

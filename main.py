@@ -189,7 +189,7 @@ def login():
             password = request.form.get('password')
 
         db = get_db()
-        if not db:
+        if db is None:
             return jsonify({"status": "error", "message": "Database connection failed"}), 500
             
         try:
@@ -233,7 +233,7 @@ def register():
             email = request.form.get('email')
             
         db = get_db()
-        if not db:
+        if db is None:
             return jsonify({"status": "error", "message": "Database connection failed"}), 500
             
         hashed_password = generate_password_hash(password)

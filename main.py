@@ -12,13 +12,15 @@ import random
 from dotenv import load_dotenv
 import requests
 
-# Fix DNS resolution for mongodb+srv on Windows where router DNS drops SRV queries
-try:
-    import dns.resolver
-    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
-    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
-except Exception:
-    pass
+# Fix DNS resolution for mongodb+srv ONLY on Windows where local router DNS drops SRV queries
+# On Linux (Render), keep the system default resolver from /etc/resolv.conf
+if os.name == 'nt':
+    try:
+        import dns.resolver
+        dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+        dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+    except Exception:
+        pass
 
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -62,29 +64,58 @@ app.config.update(
 )
 
 # MongoDB configuration
-MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+PRIMARY_MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+DIRECT_MONGO_URI = 'mongodb://admin:harish123@ac-kbakxgz-shard-00-00.cfoj6si.mongodb.net:27017,ac-kbakxgz-shard-00-01.cfoj6si.mongodb.net:27017,ac-kbakxgz-shard-00-02.cfoj6si.mongodb.net:27017/barcodedb?ssl=true&replicaSet=atlas-rmgzlh-shard-0&authSource=admin&retryWrites=true&w=majority'
 DB_NAME = os.environ.get('DB_NAME', 'barcodedb')
 
 _mongo_client = None
+_last_db_error = None
 
 # --- Utility Function for Database Connection ---
 def get_db():
-    global _mongo_client
+    global _mongo_client, _last_db_error
+    if _mongo_client is not None:
+        try:
+            return _mongo_client[DB_NAME]
+        except Exception:
+            _mongo_client = None
+
+    # First attempt: Connect using primary URI
     try:
-        if _mongo_client is None:
-            _mongo_client = MongoClient(
-                MONGO_URI,
-                serverSelectionTimeoutMS=10000,
-                connectTimeoutMS=10000,
+        client = MongoClient(
+            PRIMARY_MONGO_URI,
+            serverSelectionTimeoutMS=8000,
+            connectTimeoutMS=8000,
+            maxPoolSize=50
+        )
+        client.admin.command('ping')
+        _mongo_client = client
+        _last_db_error = None
+        return _mongo_client[DB_NAME]
+    except Exception as e1:
+        _last_db_error = str(e1)
+        print(f"Primary MongoDB connection failed: {e1}")
+
+    # Fallback attempt: Connect using direct non-SRV replica set URI (bypasses SRV/DNS issues)
+    if 'mongodb+srv://' in PRIMARY_MONGO_URI:
+        try:
+            print("Attempting direct replica set fallback...")
+            client = MongoClient(
+                DIRECT_MONGO_URI,
+                serverSelectionTimeoutMS=8000,
+                connectTimeoutMS=8000,
                 maxPoolSize=50
             )
-            # Verify connectivity
-            _mongo_client.admin.command('ping')
-        return _mongo_client[DB_NAME]
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        _mongo_client = None
-        return None
+            client.admin.command('ping')
+            _mongo_client = client
+            _last_db_error = None
+            print("Direct replica set connection succeeded!")
+            return _mongo_client[DB_NAME]
+        except Exception as e2:
+            _last_db_error = f"Primary: {e1} | Fallback: {e2}"
+            print(f"Direct MongoDB fallback failed: {e2}")
+
+    return None
 
 def get_current_user():
     """Retrieve authenticated username from session or X-Username header for cross-domain resilience."""
@@ -99,10 +130,11 @@ def get_current_user():
 @app.route('/', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health_check():
-    db_ok = get_db() is not None
+    db = get_db()
     return jsonify({
         "status": "SnapShop API is running",
-        "database": "connected" if db_ok else "unavailable",
+        "database": "connected" if db is not None else "unavailable",
+        "database_error": _last_db_error if db is None else None,
         "environment": "production" if is_production else "development"
     })
 

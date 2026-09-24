@@ -9,6 +9,7 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const navigate = useNavigate();
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -81,18 +82,28 @@ const Login = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setError('');
+        setLoading(true);
         try {
-            const response = await axios.post('/api/login', { username, password });
+            const cleanUsername = username.trim();
+            const response = await axios.post('/api/login', { 
+                username: cleanUsername, 
+                password 
+            });
 
             if (response.data?.status === 'success') {
                 localStorage.setItem('loggedin', 'true');
-                localStorage.setItem('username', response.data.username || username);
+                localStorage.setItem('username', response.data.username || cleanUsername);
                 navigate('/home');
             } else {
                 setError(response.data?.message || 'Invalid credentials');
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'Unable to reach the login server');
+            console.error('Login error:', err);
+            const msg = err.response?.data?.message || err.message || 'Unable to reach the login server';
+            setError(msg);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -106,7 +117,7 @@ const Login = () => {
 
             <div className="card fade-in" style={{ width: '100%', maxWidth: '400px', backgroundColor: 'white' }}>
                 <h2 style={{ textAlign: 'center', color: '#e7492d', marginBottom: '30px' }}>Login</h2>
-                {error && <div style={{ color: 'red', textAlign: 'center', marginBottom: '10px' }}>{error}</div>}
+                {error && <div style={{ color: '#e74c3c', backgroundColor: '#fde8e8', padding: '10px', borderRadius: '5px', textAlign: 'center', marginBottom: '15px', border: '1px solid #f8b4b4', fontSize: '14px' }}>{error}</div>}
 
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
@@ -114,6 +125,7 @@ const Login = () => {
                         <input
                             type="text"
                             required
+                            disabled={loading}
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                         />
@@ -123,11 +135,19 @@ const Login = () => {
                         <input
                             type="password"
                             required
+                            disabled={loading}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                         />
                     </div>
-                    <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Login</button>
+                    <button 
+                        type="submit" 
+                        className="btn btn-primary" 
+                        style={{ width: '100%', opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Logging in...' : 'Login'}
+                    </button>
                 </form>
 
                 <div style={{ textAlign: 'center', marginTop: '20px' }}>

@@ -11,101 +11,156 @@ import os
 import random
 from dotenv import load_dotenv
 import requests
-from dotenv import load_dotenv
+
+# Fix DNS resolution for mongodb+srv on Windows where router DNS drops SRV queries
+try:
+    import dns.resolver
+    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+except Exception:
+    pass
 
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # --- Global State & Setup ---
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-only-change-me')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-only-change-me-secret-key-123')
 
-# The frontend and API are deployed separately, so auth cookies need CORS.
-frontend_origins = os.environ.get(
-    'FRONTEND_URL',
-    'http://localhost:5173,https://self-shopping-smart-trolley.vercel.app'
-).split(',')
-CORS(app, supports_credentials=True, origins=[origin.strip() for origin in frontend_origins])
+# Determine environment
+is_production = (
+    os.environ.get('RENDER') == 'true'
+    or os.environ.get('VERCEL') == '1'
+    or os.environ.get('COOKIE_SECURE', '').lower() == 'true'
+    or os.environ.get('FLASK_ENV') == 'production'
+)
+
+# CORS Setup: Allow local development, Render, Vercel, and configured frontend origins
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5003",
+    "http://127.0.0.1:5003",
+    re.compile(r"^https:\/\/.*\.onrender\.com$"),
+    re.compile(r"^https:\/\/.*\.vercel\.app$"),
+]
+extra_origins = os.environ.get('FRONTEND_URL', '')
+if extra_origins:
+    for origin in extra_origins.split(','):
+        cleaned = origin.strip()
+        if cleaned:
+            allowed_origins.append(cleaned)
+
+CORS(app, supports_credentials=True, origins=allowed_origins)
+
 app.config.update(
-    SESSION_COOKIE_SECURE=os.environ.get('VERCEL', '').lower() == '1' or os.environ.get('COOKIE_SECURE') == 'true',
-    SESSION_COOKIE_SAMESITE='None'
+    SESSION_COOKIE_SECURE=is_production,
+    SESSION_COOKIE_SAMESITE='None' if is_production else 'Lax',
+    SESSION_COOKIE_HTTPONLY=True
 )
 
 # MongoDB configuration
-MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb://127.0.0.1:27017/'
-DB_NAME = 'barcodedb'
+MONGO_URI = os.environ.get('MONGO_URI') or 'mongodb+srv://admin:harish123@cluster0.cfoj6si.mongodb.net/barcodedb?retryWrites=true&w=majority&appName=Cluster0'
+DB_NAME = os.environ.get('DB_NAME', 'barcodedb')
+
+_mongo_client = None
 
 # --- Utility Function for Database Connection ---
 def get_db():
+    global _mongo_client
     try:
-        client = MongoClient(MONGO_URI)
-        return client[DB_NAME]
+        if _mongo_client is None:
+            _mongo_client = MongoClient(
+                MONGO_URI,
+                serverSelectionTimeoutMS=10000,
+                connectTimeoutMS=10000,
+                maxPoolSize=50
+            )
+            # Verify connectivity
+            _mongo_client.admin.command('ping')
+        return _mongo_client[DB_NAME]
     except Exception as e:
         print(f"Database connection error: {e}")
+        _mongo_client = None
         return None
 
+def get_current_user():
+    """Retrieve authenticated username from session or X-Username header for cross-domain resilience."""
+    if 'username' in session and session.get('loggedin'):
+        return session['username']
+    header_user = request.headers.get('X-Username')
+    if header_user:
+        return header_user.strip()
+    return None
+
+# --- Health Check ---
 @app.route('/', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "SnapShop API is running", "environment": "Vercel"})
+    db_ok = get_db() is not None
+    return jsonify({
+        "status": "SnapShop API is running",
+        "database": "connected" if db_ok else "unavailable",
+        "environment": "production" if is_production else "development"
+    })
 
 # --- Cart Helper Functions ---
 def get_cart_for_user():
-    # ... logic using session or user_id ...
-    # Note: Sessions across domains (Frontend on Vercel -> Backend on Vercel) require careful cookie settings (SameSite=None, Secure).
-    # For simplicity, we might assume the frontend sends a custom header 'X-User-ID' or similar if cookies fail, 
-    # but let's try standard session first.
-    if 'username' not in session:
+    username = get_current_user()
+    if not username:
         return {'products': [], 'total_price': 0.0}
     
     db = get_db()
-    if db is None: return {'products': [], 'total_price': 0.0}
+    if db is None:
+        return {'products': [], 'total_price': 0.0}
 
-    username = session['username']
     cart = db.carts.find_one({"username": username})
-    
     if not cart:
-         return {'products': [], 'total_price': 0.0}
+        return {'products': [], 'total_price': 0.0}
     
     return cart
 
 def update_cart_in_db(products, total_price):
-    if 'username' not in session:
+    username = get_current_user()
+    if not username:
         return
     
     db = get_db()
-    if db is None: return
+    if db is None:
+        return
 
-    username = session['username']
     db.carts.update_one(
         {"username": username},
         {"$set": {"products": products, "total_price": total_price, "updated_at": datetime.now()}},
         upsert=True
     )
 
-
 # --- Routes ---
 
 @app.route('/api/scan-item', methods=['POST'])
 def scan_item():
     """API endpoint to handle barcode scan from frontend."""
-    if 'username' not in session:
+    username = get_current_user()
+    if not username:
         return jsonify({"status": "error", "message": "Not logged in"}), 401
         
-    data = request.json
-    barcode = data.get('barcode').strip()
+    data = request.json or {}
+    barcode = str(data.get('barcode', '')).strip()
     
     db = get_db()
+    if db is None:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+
     product = db.products.find_one({"barcodedata": barcode})
-    
     if not product:
-         return jsonify({"status": "error", "message": "Product not found"})
+        return jsonify({"status": "error", "message": "Product not found"}), 404
     
     try:
-        # Get current cart
         cart = get_cart_for_user()
         current_products = cart.get('products', [])
         
-        # Check if item exists in cart
         found = False
         for p in current_products:
             if p['name'] == product['product_name']:
@@ -117,8 +172,7 @@ def scan_item():
             try:
                 price = float(product['product_price'])
             except (ValueError, TypeError):
-                print(f"Price conversion error for {product['product_name']}: {product['product_price']}")
-                price = 0.0 # Fallback
+                price = 0.0
                 
             current_products.append({
                 "name": product['product_name'],
@@ -126,10 +180,7 @@ def scan_item():
                 "quantity": 1
             })
             
-        # Recalculate total
         total_price = sum(float(p['price']) * int(p['quantity']) for p in current_products)
-        
-        # Save back to DB
         update_cart_in_db(current_products, total_price)
         
         return jsonify({"status": "success", "product": product['product_name']})
@@ -145,23 +196,20 @@ def get_scanned_items():
 
 @app.route('/api/remove-item', methods=['POST'])
 def remove_item():
-    if 'username' not in session: return jsonify({"status": "error"}), 401
+    username = get_current_user()
+    if not username:
+        return jsonify({"status": "error", "message": "Not logged in"}), 401
     
-    data = request.json
+    data = request.json or {}
     product_name = data.get('product_name')
     
     try:
         cart = get_cart_for_user()
         current_products = cart.get('products', [])
-        
-        # Filter out the item to remove
         new_products = [p for p in current_products if p['name'] != product_name]
-        
-        # Recalculate total
         total_price = sum(float(p['price']) * int(p['quantity']) for p in new_products)
         
         update_cart_in_db(new_products, total_price)
-        
         return jsonify({"status": "success", "message": "Item removed"})
     except Exception as e:
         print(f"Remove error: {e}")
@@ -169,23 +217,16 @@ def remove_item():
 
 @app.route('/api/start', methods=['POST'])
 def start_scanning():
-    # Only useful if we want to CLEAR the cart
-    if 'username' in session:
-         update_cart_in_db([], 0.0)
+    username = get_current_user()
+    if username:
+        update_cart_in_db([], 0.0)
     return jsonify({"status": "Cart cleared"})
-
-@app.route('/')
-def home():
-    if 'loggedin' in session:
-        return redirect(url_for('home_page'))
-    return redirect(url_for('login'))
 
 @app.route('/api/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # Handles raw JSON from axios (react) OR form data (html)
         if request.is_json:
-            data = request.get_json()
+            data = request.get_json() or {}
             username = data.get('username')
             password = data.get('password')
         else:
@@ -193,27 +234,31 @@ def login():
             password = request.form.get('password')
 
         if not username or not password:
-            response = jsonify({"status": "error", "message": "Username and password are required"})
-            return response, 400 if request.is_json else 200
+            return jsonify({"status": "error", "message": "Username and password are required"}), 400
 
+        username = username.strip()
         db = get_db()
         if db is None:
-            response = jsonify({"status": "error", "message": "Database unavailable"})
-            return response, 503 if request.is_json else 200
+            return jsonify({"status": "error", "message": "Database unavailable. Please check MongoDB configuration."}), 503
+
         try:
-            account = db.users.find_one({"username": username})
+            # Case-insensitive username lookup
+            account = db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}})
 
             if account and check_password_hash(account['password'], password):
                 session['loggedin'] = True
                 session['username'] = account['username']
-                return jsonify({"status": "success", "username": account['username']}) if request.is_json else redirect(url_for('home_page'))
+                return jsonify({
+                    "status": "success",
+                    "username": account['username'],
+                    "email": account.get('email', '')
+                }) if request.is_json else redirect(url_for('home_page'))
             else:
-                msg = 'Invalid credentials'
-                response = jsonify({"status": "error", "message": msg})
-                return response, 401 if request.is_json else 200
+                msg = 'Invalid username or password'
+                return jsonify({"status": "error", "message": msg}), 401 if request.is_json else render_template('login.html', error=msg)
         except Exception as e:
             print(f"Login error: {e}")
-            return jsonify({"status": "error", "message": "Database authentication or connection error"}), 500
+            return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
 
     return render_template('login.html')
 
@@ -226,13 +271,15 @@ def home_page():
 @app.route('/api/logout', methods=['POST'])
 def logout():
     session.clear()
+    if request.is_json:
+        return jsonify({"status": "success", "message": "Logged out successfully"})
     return redirect(url_for('login'))
 
 @app.route('/api/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         if request.is_json:
-            data = request.get_json()
+            data = request.get_json() or {}
             username = data.get('username')
             password = data.get('password')
             email = data.get('email')
@@ -241,36 +288,103 @@ def register():
             password = request.form.get('password')
             email = request.form.get('email')
             
+        if not username or not password:
+            return jsonify({"status": "error", "message": "Username and password are required"}), 400
+
+        username = username.strip()
         db = get_db()
         if db is None:
-            response = jsonify({"status": "error", "message": "Database unavailable"})
-            return response, 503 if request.is_json else 200
-        hashed_password = generate_password_hash(password)
-        
+            return jsonify({"status": "error", "message": "Database unavailable"}), 503
+
         try:
-            if db.users.find_one({"username": username}):
-                 return jsonify({"status": "error", "message": "User exists"}) if request.is_json else "User exists"
-                 
+            if db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}):
+                return jsonify({"status": "error", "message": "Username already exists"}), 409 if request.is_json else "Username already exists"
+
+            hashed_password = generate_password_hash(password)
             db.users.insert_one({
                 "username": username,
                 "password": hashed_password,
-                "email": email,
+                "email": email.strip() if email else None,
                 "created_at": datetime.now()
             })
             
-            return jsonify({"status": "success"}) if request.is_json else redirect(url_for('login'))
+            return jsonify({"status": "success", "message": "Registration successful", "username": username}) if request.is_json else redirect(url_for('login'))
         except Exception as e:
             print(f"Registration error: {e}")
-            return jsonify({"status": "error", "message": "Database authentication or connection error"}), 500
+            return jsonify({"status": "error", "message": f"Registration error: {str(e)}"}), 500
         
     return render_template('register.html')
 
-# Stock/Sales Routines (kept relatively same)
+# Stock & Product Management Routes
 @app.route('/api/stock')
 def get_stock():
     db = get_db()
+    if db is None:
+        return jsonify([])
     stock_data = list(db.products.find({}, {'_id': 0}))
     return jsonify(stock_data)
+
+@app.route('/api/product/add', methods=['POST'])
+def add_product():
+    data = request.get_json() if request.is_json else request.form
+    name = data.get('name')
+    price = data.get('price')
+    barcode = data.get('barcode', name)
+    image_url = data.get('image_url', '/static/images/placeholder.svg')
+    quantity = data.get('quantity', 1)
+
+    if not name or price is None:
+        return jsonify({"status": "error", "message": "Product name and price are required"}), 400
+
+    db = get_db()
+    if db is None:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+
+    try:
+        db.products.update_one(
+            {"product_name": name},
+            {
+                "$set": {
+                    "product_name": name,
+                    "product_price": float(price),
+                    "barcodedata": str(barcode),
+                    "image": image_url or '/static/images/placeholder.svg',
+                    "quantity": int(quantity)
+                }
+            },
+            upsert=True
+        )
+        return jsonify({"status": "Product added/updated successfully"})
+    except Exception as e:
+        print(f"Error adding product: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/product/remove', methods=['POST'])
+def remove_product():
+    data = request.get_json() if request.is_json else request.form
+    barcode_or_name = data.get('barcode')
+
+    if not barcode_or_name:
+        return jsonify({"status": "error", "message": "Product identifier is required"}), 400
+
+    db = get_db()
+    if db is None:
+        return jsonify({"status": "error", "message": "Database unavailable"}), 503
+
+    try:
+        res = db.products.delete_one({
+            "$or": [
+                {"barcodedata": str(barcode_or_name)},
+                {"product_name": str(barcode_or_name)}
+            ]
+        })
+        if res.deleted_count > 0:
+            return jsonify({"status": "Product removed successfully"})
+        else:
+            return jsonify({"status": "error", "message": "Product not found"}), 404
+    except Exception as e:
+        print(f"Error removing product: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/search', methods=['GET'])
 def search():
@@ -278,7 +392,6 @@ def search():
     db = get_db()
     results = []
     if db is not None:
-        # Simple regex search
         products = list(db.products.find({"product_name": {"$regex": query, "$options": "i"}}))
         seen_names = set()
         for p in products:
@@ -303,7 +416,7 @@ def recommended():
         products_db = list(db.products.aggregate(pipeline))
         result = []
         for p in products_db:
-             result.append({
+            result.append({
                 "name": p.get("product_name"),
                 "price": p.get("product_price"),
                 "image": p.get("image", "/static/images/placeholder.svg")
@@ -316,7 +429,7 @@ def ai_chat():
     if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
         return jsonify({"status": "error", "message": "Gemini API Key is not configured in the backend"}), 500
         
-    data = request.json
+    data = request.json or {}
     history = data.get('history', [])
     
     if not history:
@@ -330,10 +443,10 @@ def ai_chat():
         for p in products:
             products_context += f"- {p.get('product_name')} : ₹{p.get('product_price')} (Location: {p.get('location', 'N/A')})\n"
             
-    # Also fetch the user's cart if logged in to provide more context
     cart_context = "User's Cart: Empty"
-    if 'username' in session and db is not None:
-        cart = db.carts.find_one({"username": session['username']})
+    username = get_current_user()
+    if username and db is not None:
+        cart = db.carts.find_one({"username": username})
         if cart and cart.get('products'):
             cart_context = "User's Current Cart:\n"
             for item in cart['products']:
@@ -358,12 +471,12 @@ Here is the list of products in the store:
     try:
         contents = []
         for msg in history[:-1]:
-            if msg['sender'] == 'ai' and len(contents) == 0:
+            if msg.get('sender') == 'ai' and len(contents) == 0:
                 continue
-            role = "user" if msg['sender'] == 'user' else "model"
-            contents.append({"role": role, "parts": [{"text": msg['text']}]})
+            role = "user" if msg.get('sender') == 'user' else "model"
+            contents.append({"role": role, "parts": [{"text": msg.get('text', '')}]})
             
-        last_message = history[-1]['text']
+        last_message = history[-1].get('text', '')
         contents.append({"role": "user", "parts": [{"text": last_message}]})
         
         payload = {
@@ -387,7 +500,6 @@ Here is the list of products in the store:
         print(f"Gemini API Error: {e}")
         return jsonify({"status": "error", "message": "Failed to generate AI response"}), 500
 
-# --- Vercel requires app to be exported as 'app' or 'application' ---
-
 if __name__ == '__main__':
-    app.run(debug=True, port=5003)
+    port = int(os.environ.get('PORT', 5003))
+    app.run(debug=True, host='0.0.0.0', port=port)

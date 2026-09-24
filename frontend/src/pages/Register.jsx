@@ -10,6 +10,7 @@ const Register = () => {
         password: ''
     });
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
     const handleChange = (e) => {
@@ -18,8 +19,15 @@ const Register = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setError('');
+        setLoading(true);
         try {
-            const response = await axios.post('/api/register', formData);
+            const cleanData = {
+                username: formData.username.trim(),
+                email: formData.email.trim(),
+                password: formData.password
+            };
+            const response = await axios.post('/api/register', cleanData);
 
             if (response.data?.status === 'success') {
                 navigate('/login');
@@ -27,7 +35,11 @@ const Register = () => {
                 setError(response.data?.message || 'Registration failed.');
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'Registration failed. Please try again.');
+            console.error('Registration error:', err);
+            const msg = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+            setError(msg);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -35,7 +47,7 @@ const Register = () => {
         <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <div className="card fade-in" style={{ width: '100%', maxWidth: '400px', backgroundColor: 'white' }}>
                 <h2 style={{ textAlign: 'center', color: '#e7492d', marginBottom: '30px' }}>Register</h2>
-                {error && <div style={{ color: 'red', textAlign: 'center', marginBottom: '10px' }}>{error}</div>}
+                {error && <div style={{ color: '#e74c3c', backgroundColor: '#fde8e8', padding: '10px', borderRadius: '5px', textAlign: 'center', marginBottom: '15px', border: '1px solid #f8b4b4', fontSize: '14px' }}>{error}</div>}
 
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
@@ -44,6 +56,7 @@ const Register = () => {
                             type="text"
                             name="username"
                             required
+                            disabled={loading}
                             value={formData.username}
                             onChange={handleChange}
                         />
@@ -54,6 +67,7 @@ const Register = () => {
                             type="email"
                             name="email"
                             required
+                            disabled={loading}
                             value={formData.email}
                             onChange={handleChange}
                         />
@@ -64,11 +78,19 @@ const Register = () => {
                             type="password"
                             name="password"
                             required
+                            disabled={loading}
                             value={formData.password}
                             onChange={handleChange}
                         />
                     </div>
-                    <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Register</button>
+                    <button 
+                        type="submit" 
+                        className="btn btn-primary" 
+                        style={{ width: '100%', opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+                        disabled={loading}
+                    >
+                        {loading ? 'Registering...' : 'Register'}
+                    </button>
                 </form>
 
                 <div style={{ textAlign: 'center', marginTop: '20px' }}>

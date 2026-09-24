@@ -7,6 +7,15 @@ services:
     envVars:
       - key: MONGO_URI
         sync: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: snapshop-frontend
+          envVarKey: RENDER_EXTERNAL_URL
       - key: GEMINI_API_KEY
         sync: false
 

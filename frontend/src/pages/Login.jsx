@@ -84,16 +84,15 @@ const Login = () => {
         try {
             const response = await axios.post('/api/login', { username, password });
 
-            if (response.data.status === 'success') {
+            if (response.data?.status === 'success') {
                 localStorage.setItem('loggedin', 'true');
-                localStorage.setItem('username', username);
+                localStorage.setItem('username', response.data.username || username);
                 navigate('/home');
             } else {
-                setError(response.data.message || 'Invalid credentials or Login failed');
+                setError(response.data?.message || 'Invalid credentials');
             }
         } catch (err) {
-            console.error(err);
-            setError('An error occurred during login');
+            setError(err.response?.data?.message || 'Unable to reach the login server');
         }
     };
 

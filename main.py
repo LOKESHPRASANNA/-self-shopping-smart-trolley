@@ -18,13 +18,17 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # --- Global State & Setup ---
 app = Flask(__name__)
-app.secret_key = 'your_super_secure_secret_key' # Use a strong key sessions
-# CORS Setup: Must specify exact origins for credentials (cookies) to work
-CORS(app, supports_credentials=True, origins=["http://localhost:5173", re.compile(r"https://.*\.vercel\.app")])
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-only-change-me')
 
+# The frontend and API are deployed separately, so auth cookies need CORS.
+frontend_origins = os.environ.get(
+    'FRONTEND_URL',
+    'http://localhost:5173,https://self-shopping-smart-trolley.vercel.app'
+).split(',')
+CORS(app, supports_credentials=True, origins=[origin.strip() for origin in frontend_origins])
 app.config.update(
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_SECURE=True
+    SESSION_COOKIE_SECURE=os.environ.get('VERCEL', '').lower() == '1' or os.environ.get('COOKIE_SECURE') == 'true',
+    SESSION_COOKIE_SAMESITE='None'
 )
 
 # MongoDB configuration
@@ -188,20 +192,25 @@ def login():
             username = request.form.get('username')
             password = request.form.get('password')
 
+        if not username or not password:
+            response = jsonify({"status": "error", "message": "Username and password are required"})
+            return response, 400 if request.is_json else 200
+
         db = get_db()
         if db is None:
-            return jsonify({"status": "error", "message": "Database connection failed"}), 500
-            
+            response = jsonify({"status": "error", "message": "Database unavailable"})
+            return response, 503 if request.is_json else 200
         try:
             account = db.users.find_one({"username": username})
 
             if account and check_password_hash(account['password'], password):
                 session['loggedin'] = True
                 session['username'] = account['username']
-                return jsonify({"status": "success"}) if request.is_json else redirect(url_for('home_page'))
+                return jsonify({"status": "success", "username": account['username']}) if request.is_json else redirect(url_for('home_page'))
             else:
                 msg = 'Invalid credentials'
-                return jsonify({"status": "error", "message": msg}) if request.is_json else render_template('login.html', error=msg)
+                response = jsonify({"status": "error", "message": msg})
+                return response, 401 if request.is_json else 200
         except Exception as e:
             print(f"Login error: {e}")
             return jsonify({"status": "error", "message": "Database authentication or connection error"}), 500
@@ -234,8 +243,8 @@ def register():
             
         db = get_db()
         if db is None:
-            return jsonify({"status": "error", "message": "Database connection failed"}), 500
-            
+            response = jsonify({"status": "error", "message": "Database unavailable"})
+            return response, 503 if request.is_json else 200
         hashed_password = generate_password_hash(password)
         
         try:
